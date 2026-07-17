@@ -58,6 +58,10 @@ python3 "$PATCH_PY" "$STAGED/app_pojavlauncher/build.gradle"
 python3 "${ROOT}/android/amethyst-patches/fix-library-switch-rids.py" \
   "$STAGED/app_pojavlauncher"
 
+# Component modules (arc_dns/forge/methods) inherit writeVersionFile() from the
+# Amethyst root build.gradle, which is not applied here — inject the helper.
+python3 "${ROOT}/android/amethyst-patches/inject-version-helper.py" "$STAGED"
+
 # Manifest / AAR namespace fixes for merger into Tauri app (done after MANIFEST is known)
 # — see patch-embed-manifests.py call near end of this script.
 
