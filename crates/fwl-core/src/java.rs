@@ -107,9 +107,22 @@ pub fn resolve_java(cfg: &FwlConfig, required_major: u32) -> Result<JavaRuntime>
     {
         return Ok(rt);
     }
-    Err(FwlError::Launch(format!(
-        "未找到 Java {required_major}+，请在设置中指定 Java 路径或安装 JDK"
-    )))
+    // Android uses fwl-android-runtime JRE (downloaded separately); plan build only needs a stub path.
+    #[cfg(target_os = "android")]
+    {
+        let _ = cfg;
+        return Ok(JavaRuntime {
+            path: "android-runtime".into(),
+            version: format!("android-placeholder-{required_major}"),
+            major: required_major,
+        });
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err(FwlError::Launch(format!(
+            "未找到 Java {required_major}+，请在设置中指定 Java 路径或安装 JDK"
+        )))
+    }
 }
 
 pub fn ensure_java_dir(cfg: &FwlConfig) -> Result<PathBuf> {

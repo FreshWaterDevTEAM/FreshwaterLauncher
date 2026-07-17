@@ -132,6 +132,8 @@ jobs:
       - name: Init Android project
         run: |
           npx tauri android init
+          chmod +x scripts/patch-android-project.sh
+          ./scripts/patch-android-project.sh
       - name: Build Android APK (release)
         run: |
           npx tauri android build --apk --target aarch64

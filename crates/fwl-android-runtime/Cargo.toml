@@ -9,6 +9,14 @@ description = "Android Java Edition launch backend for FreshwaterLauncher"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+zip = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-# JNI bridge dependencies land here when building for Android.
+reqwest = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+flate2 = "1"
+tar = "0.4"
+xz2 = "0.1"

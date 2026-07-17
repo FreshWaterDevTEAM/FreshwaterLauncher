@@ -43,7 +43,7 @@ export default function HomePage({
         instanceId: i,
         accountId: a,
       });
-      setToast(`已启动游戏 (pid ${pid})`);
+      setToast(pid === 0 ? "已拉起 Android 出游界面" : `已启动游戏 (pid ${pid})`);
       await onRefresh();
     } catch (e) {
       setToast(String(e));

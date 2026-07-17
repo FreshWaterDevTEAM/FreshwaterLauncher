@@ -21,6 +21,7 @@ export default function MorePage({ config, instance, onRefresh, setToast }: Prop
   const [log, setLog] = useState("");
   const [skin, setSkin] = useState("");
   const [androidStatus, setAndroidStatus] = useState("");
+  const [androidBusy, setAndroidBusy] = useState(false);
 
   useEffect(() => {
     if (config) {
@@ -30,13 +31,31 @@ export default function MorePage({ config, instance, onRefresh, setToast }: Prop
     }
   }, [config]);
 
+  const refreshAndroid = async () => {
+    try {
+      const st = await api<{
+        ready: boolean;
+        message: string;
+        abi: string;
+        java_home?: string | null;
+      }>("android_runtime_status");
+      setAndroidStatus(
+        st.ready
+          ? `就绪 (${st.abi}) ${st.java_home ?? ""}`
+          : `${st.message} [${st.abi}]`,
+      );
+    } catch (e) {
+      setAndroidStatus(String(e));
+    }
+  };
+
   useEffect(() => {
     (async () => {
       if (!instance) return;
       try {
         setServers(await api("read_servers_dat", { instanceId: instance.id }));
         setSkin(await api("skin_preview_url", { uuid: "Steve" }));
-        setAndroidStatus(await api("android_runtime_status"));
+        await refreshAndroid();
       } catch {
         /* ignore */
       }
@@ -174,7 +193,31 @@ export default function MorePage({ config, instance, onRefresh, setToast }: Prop
           {skin && (
             <p className="muted">皮肤预览服务已接入（mc-heads）。</p>
           )}
-          <p className="muted">Android Runtime：{androidStatus}</p>
+          <p className="muted">Android Runtime：{androidStatus || "未探测"}</p>
+          <div className="row" style={{ marginTop: "0.6rem" }}>
+            <button className="ghost" onClick={() => refreshAndroid()}>
+              探测 Runtime
+            </button>
+            <button
+              disabled={androidBusy}
+              onClick={async () => {
+                setAndroidBusy(true);
+                try {
+                  const st = await api<{ ready: boolean; message: string }>(
+                    "android_ensure_runtime",
+                  );
+                  setToast(st.ready ? "Android Runtime 已就绪" : st.message);
+                  await refreshAndroid();
+                } catch (e) {
+                  setToast(String(e));
+                } finally {
+                  setAndroidBusy(false);
+                }
+              }}
+            >
+              {androidBusy ? "下载中…" : "下载 Android Runtime"}
+            </button>
+          </div>
         </section>
       </div>
     </div>

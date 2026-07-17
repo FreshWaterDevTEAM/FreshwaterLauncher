@@ -1,4 +1,8 @@
-use fwl_android_runtime::{default_backend, AndroidLaunchRequest, LaunchBackend};
+mod android_bridge;
+
+use fwl_android_runtime::{ensure::ensure_android_runtime, probe_runtime, RuntimeStatus};
+#[cfg(target_os = "android")]
+use fwl_android_runtime::{default_backend, request_from_plan, LaunchBackend};
 use fwl_core::accounts::AccountsStore;
 use fwl_core::auth::{
     add_authlib_account, add_offline_account, poll_device_code, refresh_microsoft, start_device_code,
@@ -249,24 +253,42 @@ async fn launch_instance(instance_id: String, account_id: String) -> Result<u32,
 
     #[cfg(target_os = "android")]
     {
-        let req = AndroidLaunchRequest {
-            instance_id: inst.id.clone(),
-            game_dir: plan.cwd.clone(),
-            version_id: inst.version_id.clone(),
-            username: account.username.clone(),
-            uuid: account.uuid.clone(),
-            access_token: account.access_token.clone(),
-            assets_dir: fwl_core::paths::assets_dir(&c.data_dir)
-                .to_string_lossy()
-                .into(),
-            libraries_dir: fwl_core::paths::libraries_dir(&c.data_dir)
-                .to_string_lossy()
-                .into(),
-        };
-        let result = default_backend().launch(req);
+        let _ = ensure_android_runtime(&c.data_dir, None).await;
+        let natives = PathBuf::from(&plan.cwd).join("natives");
+        let assets_index = "legacy".to_string();
+        let mut req = request_from_plan(
+            &inst.id,
+            &inst.version_id,
+            &account.username,
+            &account.uuid,
+            &account.access_token,
+            &plan.cwd,
+            &fwl_core::paths::assets_dir(&c.data_dir)
+                .to_string_lossy(),
+            &fwl_core::paths::libraries_dir(&c.data_dir)
+                .to_string_lossy(),
+            &natives.to_string_lossy(),
+            &assets_index,
+            &plan.main_class,
+            &plan.args,
+        );
+        let runtime = probe_runtime(&c.data_dir);
+        req.java_home = runtime.java_home;
+        let result = default_backend().prepare(&req, &c.data_dir);
         if !result.ok {
             return Err(result.message);
         }
+        let launch_file = result
+            .launch_file
+            .ok_or_else(|| "未生成 Android launch 文件".to_string())?;
+        android_bridge::open_game_activity(&launch_file)?;
+        if let Some(i) = store.get_mut(&instance_id) {
+            i.last_played = Some(chrono_like_now());
+        }
+        let _ = store.save(&c);
+        c.selected_instance = Some(instance_id);
+        c.selected_account = Some(account_id);
+        let _ = c.save();
         return Ok(0);
     }
 
@@ -564,18 +586,15 @@ fn set_download_source(source: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn android_runtime_status() -> String {
-    let req = AndroidLaunchRequest {
-        instance_id: "probe".into(),
-        game_dir: String::new(),
-        version_id: String::new(),
-        username: String::new(),
-        uuid: String::new(),
-        access_token: String::new(),
-        assets_dir: String::new(),
-        libraries_dir: String::new(),
-    };
-    default_backend().launch(req).message
+fn android_runtime_status() -> Result<RuntimeStatus, String> {
+    let c = cfg()?;
+    Ok(probe_runtime(&c.data_dir))
+}
+
+#[tauri::command]
+async fn android_ensure_runtime() -> Result<RuntimeStatus, String> {
+    let c = cfg()?;
+    ensure_android_runtime(&c.data_dir, None).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -626,6 +645,7 @@ pub fn run() {
             skin_preview_url,
             set_download_source,
             android_runtime_status,
+            android_ensure_runtime,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FreshwaterLauncher");
