@@ -30,6 +30,15 @@ def convert(build_gradle: Path) -> None:
     text = re.sub(r"\s*shrinkResources\s+true\s*\n", "\n", text)
     text = re.sub(r"\s*shrinkResources\s+false\s*\n", "\n", text)
 
+    # android.bundle {} exists only on ApplicationExtension, not LibraryExtension
+    text = re.sub(
+        r"\n\s*bundle\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*\n",
+        "\n",
+        text,
+        count=1,
+        flags=re.M,
+    )
+
     # Neutralize signing that needs vendor keystores
     text = re.sub(
         r"signingConfig\s+signingConfigs\.(customRelease|googlePlayBuild|customDebug)",
