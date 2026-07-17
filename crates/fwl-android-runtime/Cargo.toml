@@ -1,0 +1,14 @@
+[package]
+name = "fwl-android-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Android Java Edition launch backend for FreshwaterLauncher"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# JNI bridge dependencies land here when building for Android.

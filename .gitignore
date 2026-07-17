@@ -1,0 +1,14 @@
+node_modules/
+dist/
+src-tauri/target/
+target/
+.DS_Store
+*.log
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+publish/
+*.mrpack
+src-tauri/gen/

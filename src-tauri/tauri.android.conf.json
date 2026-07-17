@@ -1,0 +1,17 @@
+{
+  "identifier": "com.freshwater.fwl",
+  "bundle": {
+    "android": {
+      "minSdkVersion": 26
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "FreshwaterLauncher",
+        "visible": true
+      }
+    ]
+  }
+}
