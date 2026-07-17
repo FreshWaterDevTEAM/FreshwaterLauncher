@@ -61,13 +61,16 @@ FORGE_DIR="$STAGED/forge_installer"
 ARC_DIR="$STAGED/arc_dns_injector"
 METHODS_DIR="$STAGED/methods_injector_agent"
 
-if ! grep -q 'fwl_amethyst_pojav' "$SETTINGS"; then
+# Keep Gradle path :app_pojavlauncher — Amethyst submodules hardcode that name
+if ! grep -q "project(\":app_pojavlauncher\")\|project(':app_pojavlauncher')" "$SETTINGS" \
+  && ! grep -q 'include.*app_pojavlauncher' "$SETTINGS"; then
   if [[ "$SETTINGS" == *.kts ]]; then
     cat >>"$SETTINGS" <<EOF
 
 // FWL: Amethyst/Pojav play stack (LGPL-3.0) — see NOTICE.android
-include(":fwl_amethyst_pojav")
-project(":fwl_amethyst_pojav").projectDir = file("$POJAV_DIR")
+// Path must remain :app_pojavlauncher (referenced by forge/arc/lwjgl modules)
+include(":app_pojavlauncher")
+project(":app_pojavlauncher").projectDir = file("$POJAV_DIR")
 include(":jre_lwjgl3glfw")
 project(":jre_lwjgl3glfw").projectDir = file("$LWJGL_DIR")
 include(":jre_lwjgl3glfw:lwjgl-3.3.3")
@@ -85,8 +88,8 @@ EOF
     cat >>"$SETTINGS" <<EOF
 
 // FWL: Amethyst/Pojav play stack (LGPL-3.0) — see NOTICE.android
-include ':fwl_amethyst_pojav'
-project(':fwl_amethyst_pojav').projectDir = new File('$POJAV_DIR')
+include ':app_pojavlauncher'
+project(':app_pojavlauncher').projectDir = new File('$POJAV_DIR')
 include ':jre_lwjgl3glfw'
 project(':jre_lwjgl3glfw').projectDir = new File('$LWJGL_DIR')
 include ':jre_lwjgl3glfw:lwjgl-3.3.3'
@@ -103,20 +106,20 @@ EOF
   fi
   echo "Patched settings: $SETTINGS"
 else
-  echo "settings already includes fwl_amethyst_pojav"
+  echo "settings already includes app_pojavlauncher"
 fi
 
-if ! grep -q 'fwl_amethyst_pojav' "$APP_BUILD"; then
+if ! grep -q 'app_pojavlauncher' "$APP_BUILD"; then
   python3 - <<PY
 from pathlib import Path
 p = Path(r'''$APP_BUILD''')
 t = p.read_text(encoding="utf-8")
-if "fwl_amethyst_pojav" in t:
+if "app_pojavlauncher" in t:
     raise SystemExit(0)
 if p.suffix == ".kts":
-    dep = 'implementation(project(":fwl_amethyst_pojav"))'
+    dep = 'implementation(project(":app_pojavlauncher"))'
 else:
-    dep = "implementation project(':fwl_amethyst_pojav')"
+    dep = "implementation project(':app_pojavlauncher')"
 if "dependencies {" in t:
     t = t.replace("dependencies {", "dependencies {\n    " + dep, 1)
 else:
