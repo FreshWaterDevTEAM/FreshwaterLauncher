@@ -1,5 +1,7 @@
 use crate::config::FwlConfig;
 use crate::error::Result;
+#[cfg(not(target_os = "android"))]
+use crate::error::FwlError;
 use crate::paths::{ensure_dir, java_dir};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
