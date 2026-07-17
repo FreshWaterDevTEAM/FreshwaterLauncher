@@ -58,6 +58,9 @@ python3 "$PATCH_PY" "$STAGED/app_pojavlauncher/build.gradle"
 python3 "${ROOT}/android/amethyst-patches/fix-library-switch-rids.py" \
   "$STAGED/app_pojavlauncher"
 
+# Manifest / AAR namespace fixes for merger into Tauri app (done after MANIFEST is known)
+# — see patch-embed-manifests.py call near end of this script.
+
 # Critical: Tauri-generated project defaults to AGP 8 non-final / non-transitive R,
 # which breaks Amethyst Java (switch(R.id.*), portrait-sdp R.dimen._*sdp, AppCompat attrs).
 # Match Amethyst's own gradle.properties.
@@ -313,67 +316,7 @@ allprojects {
     print(f"Added groovy jitpack to {root_build}")
 PY
 
-python3 - <<'PY' "$MANIFEST"
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-changed = False
-
-def ensure_activity(name: str, block: str) -> None:
-    global text, changed
-    if name in text:
-        return
-    if "</application>" not in text:
-        raise SystemExit(f"no </application> in {path}")
-    text = text.replace("</application>", block + "\n    </application>", 1)
-    changed = True
-
-ensure_activity(
-    "com.freshwater.fwl.FwlGameActivity",
-    '''
-        <activity
-            android:name="com.freshwater.fwl.FwlGameActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
-            android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
-''',
-)
-ensure_activity(
-    "net.kdt.pojavlaunch.MainActivity",
-    '''
-        <activity
-            android:name="net.kdt.pojavlaunch.MainActivity"
-            android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection"
-            android:launchMode="singleTask"
-            android:screenOrientation="sensorLandscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
-''',
-)
-
-if "android.permission.INTERNET" not in text:
-    text2, n = re.subn(
-        r"(<manifest\b[^>]*>)",
-        r"""\1
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-""",
-        text,
-        count=1,
-    )
-    if n:
-        text = text2
-        changed = True
-
-if changed:
-    path.write_text(text, encoding="utf-8")
-    print(f"Patched AndroidManifest: {path}")
-else:
-    print("AndroidManifest already has FWL/Amethyst activities")
-PY
+python3 "${ROOT}/android/amethyst-patches/patch-embed-manifests.py" \
+  "$STAGED/app_pojavlauncher" "$MANIFEST"
 
 echo "Android overlay + Amethyst wiring applied."
