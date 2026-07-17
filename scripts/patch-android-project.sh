@@ -54,6 +54,9 @@ if [[ -d "$AMETHYST/MobileGlues" ]]; then
 fi
 
 python3 "$PATCH_PY" "$STAGED/app_pojavlauncher/build.gradle"
+# Library R.id is always non-final — convert the few switch(R.id) sites.
+python3 "${ROOT}/android/amethyst-patches/fix-library-switch-rids.py" \
+  "$STAGED/app_pojavlauncher"
 
 # Critical: Tauri-generated project defaults to AGP 8 non-final / non-transitive R,
 # which breaks Amethyst Java (switch(R.id.*), portrait-sdp R.dimen._*sdp, AppCompat attrs).
