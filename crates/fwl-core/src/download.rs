@@ -1,9 +1,7 @@
 use crate::config::FwlConfig;
 use crate::error::{FwlError, Result};
 use crate::paths::{assets_dir, ensure_dir, libraries_dir, versions_dir};
-use crate::versions::{
-    fetch_version_json, library_allowed, VersionJson, VersionManifest,
-};
+use crate::versions::{fetch_version_json, library_allowed, VersionManifest};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};

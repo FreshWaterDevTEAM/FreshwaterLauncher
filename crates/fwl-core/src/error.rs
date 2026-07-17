@@ -12,6 +12,8 @@ pub enum FwlError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Zip error: {0}")]
+    Zip(#[from] zip::result::ZipError),
     #[error("Auth error: {0}")]
     Auth(String),
     #[error("Download error: {0}")]
