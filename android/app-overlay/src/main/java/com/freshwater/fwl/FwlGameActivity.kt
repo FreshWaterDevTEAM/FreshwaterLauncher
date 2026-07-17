@@ -7,21 +7,22 @@ import android.util.Log
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import net.kdt.pojavlaunch.MainActivity
+import net.kdt.pojavlaunch.Tools
+import net.kdt.pojavlaunch.prefs.LauncherPreferences
+import net.kdt.pojavlaunch.value.MinecraftAccount
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
+import java.nio.file.Files
 import java.util.concurrent.Executors
 
 /**
- * Starts Minecraft: Java Edition using a downloaded Android JRE as an external process.
- * Also offers bridge intents to PojavLauncher / FCL when installed.
+ * Bridges FWL launch.json into the embedded Amethyst/Pojav [MainActivity] kernel.
  */
 class FwlGameActivity : Activity() {
     private val tag = "FWL-Game"
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var logView: TextView
-    private var process: Process? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,16 +31,13 @@ class FwlGameActivity : Activity() {
             textSize = 12f
             setPadding(24, 24, 24, 24)
         }
-        val scroll = ScrollView(this).apply { addView(logView) }
         setContentView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+            ScrollView(this).apply {
                 addView(
-                    scroll,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                    ),
+                    LinearLayout(this@FwlGameActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(logView)
+                    },
                 )
             },
         )
@@ -49,130 +47,143 @@ class FwlGameActivity : Activity() {
             appendLog("缺少 launch 文件路径")
             return
         }
-        executor.execute { startGame(launchPath) }
+        executor.execute { prepareAndLaunch(launchPath) }
     }
 
     override fun onDestroy() {
-        process?.destroy()
         executor.shutdownNow()
         super.onDestroy()
     }
 
-    private fun startGame(launchPath: String) {
+    private fun prepareAndLaunch(launchPath: String) {
         try {
             val json = JSONObject(File(launchPath).readText())
-            val gameDir = json.getString("game_dir")
+            val versionId = json.optString("version_id")
+            val gameDir = json.optString("game_dir")
+            val username = json.optString("username", "Player")
+            val uuid = json.optString("uuid", "00000000-0000-0000-0000-000000000000")
+            val accessToken = json.optString("access_token", "0")
+            val assetsDir = json.optString("assets_dir")
+            val librariesDir = json.optString("libraries_dir")
             val javaHome = json.optString("java_home", "")
-            val mainClass = json.optString("main_class", "net.minecraft.client.main.Main")
-            val classpath = json.optJSONArray("classpath") ?: org.json.JSONArray()
-            val jvmArgs = json.optJSONArray("jvm_args") ?: org.json.JSONArray()
-            val gameArgs = json.optJSONArray("game_args") ?: org.json.JSONArray()
-            val natives = json.optString("natives_dir", "")
 
-            if (tryBridgeExternal(gameDir, json)) {
+            appendLog("初始化 Amethyst/Pojav 存储…")
+            Tools.initEarlyConstants(this)
+            if (!Tools.checkStorageRoot(this)) {
+                appendLog("存储不可用，无法出游")
                 return
             }
+            Tools.initStorageConstants(this)
+            LauncherPreferences.loadPreferences(this)
 
-            val javaBin = resolveJava(javaHome)
-            if (javaBin == null) {
-                appendLog("未找到 Android JRE。请先在「更多」页下载 Android Runtime。")
-                appendLog("也可安装 PojavLauncher / Fold Craft Launcher，FWL 会自动桥接出游。")
-                return
+            val mcRoot = File(Tools.DIR_GAME_NEW)
+            mcRoot.mkdirs()
+
+            // Map FWL shared dirs into Pojav .minecraft layout (symlink when possible).
+            linkOrCopyDir(File(librariesDir), File(mcRoot, "libraries"))
+            linkOrCopyDir(File(assetsDir), File(mcRoot, "assets"))
+            val fwlVersions = File(gameDir).parentFile?.parentFile?.resolve("versions")
+                ?: File(librariesDir).parentFile?.resolve("versions")
+            if (fwlVersions != null && fwlVersions.exists()) {
+                linkOrCopyDir(fwlVersions, File(mcRoot, "versions"))
+            } else {
+                // Instance-local version jar/json may live under shared versions by id
+                appendLog("versions 目录: ${File(mcRoot, "versions").absolutePath}")
             }
 
-            val cp = buildList {
-                for (i in 0 until classpath.length()) add(classpath.getString(i))
-            }.joinToString(":")
-
-            val cmd = ArrayList<String>()
-            cmd.add(javaBin.absolutePath)
-            for (i in 0 until jvmArgs.length()) {
-                val a = jvmArgs.getString(i)
-                if (a.startsWith("-Djava.library.path=")) continue
-                cmd.add(a)
-            }
-            if (natives.isNotBlank()) {
-                cmd.add("-Djava.library.path=$natives")
-            }
-            cmd.add("-Dorg.lwjgl.opengl.libname=libgl4es_32.so")
-            cmd.add("-cp")
-            cmd.add(cp)
-            cmd.add(mainClass)
-            for (i in 0 until gameArgs.length()) cmd.add(gameArgs.getString(i))
-
-            appendLog("启动: ${cmd.take(6).joinToString(" ")} ...")
-            val pb = ProcessBuilder(cmd)
-                .directory(File(gameDir))
-                .redirectErrorStream(true)
-            val env = pb.environment()
-            env["JAVA_HOME"] = javaHome
-            env["LIBGL_ES"] = "2"
-            env["LIBGL_MIPMAP"] = "3"
-            env["MESA_GL_VERSION_OVERRIDE"] = "3.3"
-            if (natives.isNotBlank()) {
-                val prev = env["LD_LIBRARY_PATH"] ?: ""
-                env["LD_LIBRARY_PATH"] = listOf(natives, "$javaHome/lib", prev)
-                    .filter { it.isNotBlank() }
-                    .joinToString(":")
+            // Point profile gameDir at FWL instance folder so mods/saves stay with the instance
+            val profiles = File(mcRoot, "launcher_profiles.json")
+            if (!profiles.exists()) {
+                profiles.writeText(
+                    """
+                    {
+                      "profiles": {
+                        "FWL": {
+                          "name": "FWL",
+                          "type": "custom",
+                          "lastVersionId": "$versionId",
+                          "gameDir": "$gameDir"
+                        }
+                      },
+                      "selectedProfile": "FWL"
+                    }
+                    """.trimIndent(),
+                )
             }
 
-            process = pb.start()
-            val reader = BufferedReader(InputStreamReader(process!!.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                appendLog(line!!)
-            }
-            val code = process!!.waitFor()
-            appendLog("进程退出: $code")
-        } catch (t: Throwable) {
-            Log.e(tag, "launch failed", t)
-            appendLog("启动失败: ${t.message}")
-        }
-    }
-
-    private fun tryBridgeExternal(gameDir: String, json: JSONObject): Boolean {
-        val candidates = listOf(
-            "com.tungsten.fcl",
-            "com.tungsten.fclauncher",
-            "net.kdt.pojavlaunch",
-            "net.kdt.pojavlaunch.debug",
-        )
-        for (pkg in candidates) {
-            val launch = packageManager.getLaunchIntentForPackage(pkg) ?: continue
-            appendLog("检测到 $pkg，使用外部运行时出游（推荐）")
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            launch.putExtra("FWL_GAME_DIR", gameDir)
-            launch.putExtra("FWL_VERSION_ID", json.optString("version_id"))
-            launch.putExtra("FWL_USERNAME", json.optString("username"))
+            val account = MinecraftAccount()
+            account.username = username
+            account.accessToken = accessToken
+            account.profileId = uuid
+            account.selectedVersion = versionId
+            account.isMicrosoft = accessToken.isNotBlank() && accessToken != "0"
             try {
-                startActivity(launch)
-                appendLog("已拉起 $pkg。请在该启动器中选择对应版本/目录继续。")
-                appendLog("游戏目录: $gameDir")
-                return true
+                File(Tools.DIR_ACCOUNT_NEW).mkdirs()
+                account.save()
             } catch (t: Throwable) {
-                appendLog("无法拉起 $pkg: ${t.message}")
+                appendLog("写入账号信息跳过: ${t.message}")
             }
+
+            if (javaHome.isNotBlank()) {
+                tryInstallRuntime(File(javaHome))
+            }
+
+            if (versionId.isBlank()) {
+                appendLog("launch.json 缺少 version_id")
+                return
+            }
+
+            appendLog("启动内核 MainActivity：$versionId")
+            val i = Intent(this, MainActivity::class.java)
+            i.putExtra(MainActivity.INTENT_MINECRAFT_VERSION, versionId)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(i)
+            finish()
+        } catch (t: Throwable) {
+            Log.e(tag, "prepareAndLaunch failed", t)
+            appendLog("出游失败: ${t.message}")
         }
-        return false
     }
 
-    private fun resolveJava(javaHome: String): File? {
-        if (javaHome.isBlank()) return null
-        val home = File(javaHome)
-        val marker = File(home, ".fwl-jre-root")
-        val root = if (marker.exists()) File(marker.readText().trim()) else home
-        val candidates = listOf(
-            File(root, "bin/java"),
-            File(root, "jre/bin/java"),
-            File(home, "bin/java"),
-        )
-        candidates.firstOrNull { it.exists() && it.canExecute() }?.let { return it }
-        home.walkTopDown().maxDepth(3).forEach { f ->
-            if (f.name == "java" && f.canExecute() && f.parentFile?.name == "bin") {
-                return f
+    private fun tryInstallRuntime(jreHome: File) {
+        try {
+            val marker = File(jreHome, ".fwl-jre-root")
+            val root = if (marker.exists()) File(marker.readText().trim()) else jreHome
+            if (!File(root, "bin/java").exists() && !File(root, "bin/java").canExecute()) {
+                // still try
             }
+            appendLog("注册 Runtime: ${root.absolutePath}")
+            val dest = File(Tools.MULTIRT_HOME, "Internal-17")
+            if (!dest.exists()) {
+                linkOrCopyDir(root, dest)
+            }
+        } catch (t: Throwable) {
+            appendLog("Runtime 注册警告: ${t.message}")
         }
-        return null
+    }
+
+    private fun linkOrCopyDir(src: File, dest: File) {
+        if (!src.exists()) {
+            appendLog("跳过缺失目录: ${src.absolutePath}")
+            return
+        }
+        if (dest.exists()) {
+            return
+        }
+        dest.parentFile?.mkdirs()
+        try {
+            Files.createSymbolicLink(dest.toPath(), src.toPath())
+            appendLog("symlink ${dest.name} → ${src.absolutePath}")
+            return
+        } catch (_: Throwable) {
+            /* fall through */
+        }
+        try {
+            src.copyRecursively(dest, overwrite = false)
+            appendLog("copied ${dest.name}")
+        } catch (t: Throwable) {
+            appendLog("无法映射 ${src.name}: ${t.message}")
+        }
     }
 
     private fun appendLog(msg: String) {
@@ -185,11 +196,5 @@ class FwlGameActivity : Activity() {
 
     companion object {
         const val EXTRA_LAUNCH_FILE = "fwl_launch_file"
-
-        fun open(activity: Activity, launchFile: String) {
-            val i = Intent(activity, FwlGameActivity::class.java)
-            i.putExtra(EXTRA_LAUNCH_FILE, launchFile)
-            activity.startActivity(i)
-        }
     }
 }

@@ -1,9 +1,9 @@
 {
-  "version": "jre17-ec28559-arm64",
+  "version": "jre17-pojav-arm64",
   "abi": "arm64-v8a",
   "jre_url": "https://github.com/PojavLauncherTeam/android-openjdk-build-multiarch/releases/download/jre17-ec28559/jre17-arm64-20210825-release.tar.xz",
   "jre_sha256": null,
   "natives_url": null,
   "natives_sha256": null,
-  "notes": "OpenJDK 17 for Android aarch64 (PojavLauncherTeam android-openjdk-build-multiarch). Downloaded separately at runtime; FWL execs java as an external process."
+  "notes": "Android OpenJDK 17 (Pojav/Amethyst MultiRT compatible). Installed under app files/runtimes for the embedded Amethyst kernel. Prefer Amethyst Internal-17 layout after extract."
 }

@@ -391,6 +391,12 @@ pub mod ensure {
         }
 
         write_jre_root_marker(&jre_dir);
+        // Also expose under MultiRT-style name for Amethyst kernel
+        let multirt = root.join("Internal-17");
+        if !multirt.exists() {
+            let _ = copy_dir_recursive(&jre_dir, &multirt);
+            write_jre_root_marker(&multirt);
+        }
 
         if let Some(nurl) = &index.natives_url {
             let nzip = root.join("natives-download");
@@ -492,5 +498,41 @@ pub mod ensure {
         let mut archive = tar::Archive::new(xz);
         archive.unpack(dest).map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    #[cfg(target_os = "android")]
+    fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+        for entry in walkdir_simple(src)? {
+            let rel = entry.strip_prefix(src).map_err(|e| e.to_string())?;
+            let out = dest.join(rel);
+            if entry.is_dir() {
+                std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::copy(&entry, &out).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "android")]
+    fn walkdir_simple(root: &Path) -> Result<Vec<PathBuf>, String> {
+        let mut out = Vec::new();
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+            for e in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+                let e = e.map_err(|e| e.to_string())?;
+                let p = e.path();
+                out.push(p.clone());
+                if p.is_dir() {
+                    walk(&p, out)?;
+                }
+            }
+            Ok(())
+        }
+        walk(root, &mut out)?;
+        Ok(out)
     }
 }

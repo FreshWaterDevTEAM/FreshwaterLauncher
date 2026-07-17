@@ -1,22 +1,36 @@
 #!/usr/bin/env bash
-# Copy FWL Android overlay (GameActivity + JNI bridge) into tauri-generated project.
+# Copy FWL Android overlay + wire Amethyst/Pojav runtime into tauri-generated project.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GEN="${ROOT}/src-tauri/gen/android"
 OVERLAY="${ROOT}/android/app-overlay"
+AMETHYST="${ROOT}/third_party/amethyst-android"
+PATCH_PY="${ROOT}/android/amethyst-patches/convert-app-to-library.py"
+STAGED="${GEN}/fwl_amethyst_tree"
 
 if [[ ! -d "$GEN" ]]; then
   echo "ERROR: $GEN not found. Run: npx tauri android init" >&2
   exit 1
 fi
 
+if [[ ! -d "$AMETHYST/app_pojavlauncher" ]]; then
+  echo "ERROR: Amethyst submodule missing at $AMETHYST" >&2
+  echo "Run: git submodule update --init --recursive" >&2
+  exit 1
+fi
+
+if [[ -f "$AMETHYST/.gitmodules" ]]; then
+  git -C "$AMETHYST" submodule update --init --recursive || true
+fi
+
 APP_SRC="$(find "$GEN" -type d -path '*/app/src/main/java' | head -n1 || true)"
 MANIFEST="$(find "$GEN" -type f -name AndroidManifest.xml -path '*/app/src/main/*' | head -n1 || true)"
+APP_BUILD="$(find "$GEN" -type f \( -name 'build.gradle.kts' -o -name 'build.gradle' \) -path '*/app/*' | head -n1 || true)"
+SETTINGS="$(find "$GEN" -maxdepth 2 -type f \( -name 'settings.gradle.kts' -o -name 'settings.gradle' \) | head -n1 || true)"
 
-if [[ -z "$APP_SRC" || -z "$MANIFEST" ]]; then
-  echo "ERROR: could not locate app/src/main in generated Android project" >&2
-  find "$GEN" -maxdepth 4 -type d | head -n 40 >&2
+if [[ -z "$APP_SRC" || -z "$MANIFEST" || -z "$APP_BUILD" || -z "$SETTINGS" ]]; then
+  echo "ERROR: could not locate generated Android app/settings" >&2
   exit 1
 fi
 
@@ -25,34 +39,169 @@ mkdir -p "$PKG_DIR"
 cp -f "${OVERLAY}/src/main/java/com/freshwater/fwl/"*.kt "$PKG_DIR/"
 echo "Copied Kotlin sources → $PKG_DIR"
 
-# Register FwlGameActivity if missing
-if ! grep -q 'FwlGameActivity' "$MANIFEST"; then
-  python3 - <<'PY' "$MANIFEST"
+# Stage a writable copy of Amethyst so we never dirty the git submodule
+rm -rf "$STAGED"
+mkdir -p "$STAGED"
+echo "Staging Amethyst tree → $STAGED"
+cp -a "$AMETHYST/app_pojavlauncher" "$STAGED/"
+cp -a "$AMETHYST/jre_lwjgl3glfw" "$STAGED/"
+cp -a "$AMETHYST/forge_installer" "$STAGED/"
+cp -a "$AMETHYST/arc_dns_injector" "$STAGED/"
+cp -a "$AMETHYST/methods_injector_agent" "$STAGED/"
+# MobileGlues / SDL live inside jni paths already under app_pojavlauncher when submodules present
+if [[ -d "$AMETHYST/MobileGlues" ]]; then
+  cp -a "$AMETHYST/MobileGlues" "$STAGED/" || true
+fi
+
+python3 "$PATCH_PY" "$STAGED/app_pojavlauncher/build.gradle"
+
+POJAV_DIR="$STAGED/app_pojavlauncher"
+LWJGL_DIR="$STAGED/jre_lwjgl3glfw"
+FORGE_DIR="$STAGED/forge_installer"
+ARC_DIR="$STAGED/arc_dns_injector"
+METHODS_DIR="$STAGED/methods_injector_agent"
+
+if ! grep -q 'fwl_amethyst_pojav' "$SETTINGS"; then
+  if [[ "$SETTINGS" == *.kts ]]; then
+    cat >>"$SETTINGS" <<EOF
+
+// FWL: Amethyst/Pojav play stack (LGPL-3.0) — see NOTICE.android
+include(":fwl_amethyst_pojav")
+project(":fwl_amethyst_pojav").projectDir = file("$POJAV_DIR")
+include(":jre_lwjgl3glfw")
+project(":jre_lwjgl3glfw").projectDir = file("$LWJGL_DIR")
+include(":jre_lwjgl3glfw:lwjgl-3.3.3")
+project(":jre_lwjgl3glfw:lwjgl-3.3.3").projectDir = file("$LWJGL_DIR/lwjgl-3.3.3")
+include(":jre_lwjgl3glfw:lwjgl-3.4.1")
+project(":jre_lwjgl3glfw:lwjgl-3.4.1").projectDir = file("$LWJGL_DIR/lwjgl-3.4.1")
+include(":forge_installer")
+project(":forge_installer").projectDir = file("$FORGE_DIR")
+include(":arc_dns_injector")
+project(":arc_dns_injector").projectDir = file("$ARC_DIR")
+include(":methods_injector_agent")
+project(":methods_injector_agent").projectDir = file("$METHODS_DIR")
+EOF
+  else
+    cat >>"$SETTINGS" <<EOF
+
+// FWL: Amethyst/Pojav play stack (LGPL-3.0) — see NOTICE.android
+include ':fwl_amethyst_pojav'
+project(':fwl_amethyst_pojav').projectDir = new File('$POJAV_DIR')
+include ':jre_lwjgl3glfw'
+project(':jre_lwjgl3glfw').projectDir = new File('$LWJGL_DIR')
+include ':jre_lwjgl3glfw:lwjgl-3.3.3'
+project(':jre_lwjgl3glfw:lwjgl-3.3.3').projectDir = new File('$LWJGL_DIR/lwjgl-3.3.3')
+include ':jre_lwjgl3glfw:lwjgl-3.4.1'
+project(':jre_lwjgl3glfw:lwjgl-3.4.1').projectDir = new File('$LWJGL_DIR/lwjgl-3.4.1')
+include ':forge_installer'
+project(':forge_installer').projectDir = new File('$FORGE_DIR')
+include ':arc_dns_injector'
+project(':arc_dns_injector').projectDir = new File('$ARC_DIR')
+include ':methods_injector_agent'
+project(':methods_injector_agent').projectDir = new File('$METHODS_DIR')
+EOF
+  fi
+  echo "Patched settings: $SETTINGS"
+else
+  echo "settings already includes fwl_amethyst_pojav"
+fi
+
+if ! grep -q 'fwl_amethyst_pojav' "$APP_BUILD"; then
+  python3 - <<PY
+from pathlib import Path
+p = Path(r'''$APP_BUILD''')
+t = p.read_text(encoding="utf-8")
+if "fwl_amethyst_pojav" in t:
+    raise SystemExit(0)
+if p.suffix == ".kts":
+    dep = 'implementation(project(":fwl_amethyst_pojav"))'
+else:
+    dep = "implementation project(':fwl_amethyst_pojav')"
+if "dependencies {" in t:
+    t = t.replace("dependencies {", "dependencies {\n    " + dep, 1)
+else:
+    t += "\n\ndependencies {\n    " + dep + "\n}\n"
+p.write_text(t, encoding="utf-8")
+print("app dependencies patched:", p)
+PY
+fi
+
+ROOT_BUILD="$(find "$GEN" -maxdepth 2 -type f \( -name 'build.gradle.kts' -o -name 'build.gradle' \) ! -path '*/app/*' | head -n1 || true)"
+if [[ -n "$ROOT_BUILD" ]] && ! grep -q 'jitpack.io' "$ROOT_BUILD"; then
+  cat >>"$ROOT_BUILD" <<'EOF'
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+    }
+}
+EOF
+  echo "Added jitpack to $ROOT_BUILD"
+fi
+
+python3 - <<'PY' "$MANIFEST"
+import re
 import sys
 from pathlib import Path
+
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-activity = '''
+changed = False
+
+def ensure_activity(name: str, block: str) -> None:
+    global text, changed
+    if name in text:
+        return
+    if "</application>" not in text:
+        raise SystemExit(f"no </application> in {path}")
+    text = text.replace("</application>", block + "\n    </application>", 1)
+    changed = True
+
+ensure_activity(
+    "com.freshwater.fwl.FwlGameActivity",
+    '''
         <activity
-            android:name=".FwlGameActivity"
+            android:name="com.freshwater.fwl.FwlGameActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
-'''
-if "FwlGameActivity" in text:
-    print("manifest already has FwlGameActivity")
-    raise SystemExit(0)
-# insert before closing </application>
-needle = "</application>"
-if needle not in text:
-    raise SystemExit(f"no </application> in {path}")
-text = text.replace(needle, activity + "\n    " + needle, 1)
-path.write_text(text, encoding="utf-8")
-print(f"Patched AndroidManifest: {path}")
-PY
-else
-  echo "AndroidManifest already references FwlGameActivity"
-fi
+''',
+)
+ensure_activity(
+    "net.kdt.pojavlaunch.MainActivity",
+    '''
+        <activity
+            android:name="net.kdt.pojavlaunch.MainActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+''',
+)
 
-echo "Android overlay applied."
+if "android.permission.INTERNET" not in text:
+    text2, n = re.subn(
+        r"(<manifest\b[^>]*>)",
+        r"""\1
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+""",
+        text,
+        count=1,
+    )
+    if n:
+        text = text2
+        changed = True
+
+if changed:
+    path.write_text(text, encoding="utf-8")
+    print(f"Patched AndroidManifest: {path}")
+else:
+    print("AndroidManifest already has FWL/Amethyst activities")
+PY
+
+echo "Android overlay + Amethyst wiring applied."

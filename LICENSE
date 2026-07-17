@@ -19,3 +19,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+-------------------------------------------------------------------------------
+Android game runtime exception
+-------------------------------------------------------------------------------
+
+The Android APK embeds the Amethyst/PojavLauncher play stack
+(third_party/amethyst-android and related patches under android/). That portion
+is licensed under the GNU Lesser General Public License v3.0 (LGPL-3.0) and the
+licenses of its dependencies. See NOTICE.android for attribution and how to
+obtain corresponding source / replace the LGPL library.

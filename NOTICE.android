@@ -1,0 +1,28 @@
+FreshwaterLauncher Android game runtime — third-party notices
+==============================================================
+
+Desktop / shared launcher code (fwl-core, Tauri UI, sync server) remains under
+the MIT License (see LICENSE).
+
+The Android Minecraft: Java Edition **play** stack embeds software from the
+PojavLauncher lineage. That Android runtime portion is subject to LGPL-3.0
+(and other licenses of its dependencies), not MIT alone.
+
+Embedded source (git submodule)
+-------------------------------
+- AngelAuraMC/Amethyst-Android
+  https://github.com/AngelAuraMC/Amethyst-Android
+  Branch: v3_openjdk
+  Path: third_party/amethyst-android
+  License: GNU Lesser General Public License v3.0 (see that tree's LICENSE)
+  Based on: PojavLauncherTeam/PojavLauncher (LGPL-3.0)
+
+FWL modifications to the embedded stack (if any) live under:
+  android/amethyst-patches/
+
+You may replace the LGPL library portion with a modified version under the
+terms of the LGPL-3.0. Corresponding source for the version we ship is the
+submodule commit recorded in this repository plus the patches above.
+
+Other dependency licenses inside Amethyst (OpenJDK GPLv2+CE, GL4ES MIT, LWJGL
+BSD, etc.) are listed in the Amethyst/Pojav trees and their assets/licenses.

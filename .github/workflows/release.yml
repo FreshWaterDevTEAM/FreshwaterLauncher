@@ -86,30 +86,76 @@ jobs:
       - name: Collect bundles
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist-launcher
-          cp src-tauri/target/release/bundle/nsis/*.exe dist-launcher/ 2>/dev/null || true
-          cp src-tauri/target/release/bundle/msi/*.msi dist-launcher/ 2>/dev/null || true
-          cp src-tauri/target/release/bundle/appimage/*.AppImage dist-launcher/ 2>/dev/null || true
-          cp src-tauri/target/release/bundle/deb/*.deb dist-launcher/ 2>/dev/null || true
-          cp src-tauri/target/release/bundle/dmg/*.dmg dist-launcher/ 2>/dev/null || true
+          # Cargo workspace → binaries/bundles live under repo-root target/, not only src-tauri/target/
+          SEARCH_ROOTS=(target src-tauri/target)
+          copy_globs() {
+            local pattern="$1"
+            local dest_name="${2:-}"
+            for root in "${SEARCH_ROOTS[@]}"; do
+              # shellcheck disable=SC2086
+              for f in ${root}/${pattern}; do
+                [[ -e "$f" ]] || continue
+                if [[ -n "$dest_name" ]]; then
+                  cp -a "$f" "dist-launcher/${dest_name}"
+                else
+                  cp -a "$f" dist-launcher/
+                fi
+              done
+            done
+          }
+          copy_globs "release/bundle/nsis/*.exe"
+          copy_globs "release/bundle/msi/*.msi"
+          copy_globs "release/bundle/appimage/*.AppImage"
+          copy_globs "release/bundle/deb/*.deb"
+          copy_globs "release/bundle/dmg/*.dmg"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp src-tauri/target/release/freshwater-launcher.exe dist-launcher/FreshwaterLauncher-windows-x64.exe 2>/dev/null || true
+            copy_globs "release/freshwater-launcher.exe" "FreshwaterLauncher-windows-x64.exe"
+            copy_globs "release/FreshwaterLauncher.exe" "FreshwaterLauncher-windows-x64.exe"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            cp -R src-tauri/target/release/bundle/macos/*.app dist-launcher/ 2>/dev/null || true
+            copy_globs "release/bundle/macos/*.app"
           else
-            cp src-tauri/target/release/freshwater-launcher dist-launcher/FreshwaterLauncher-linux-x64 2>/dev/null || true
+            copy_globs "release/freshwater-launcher" "FreshwaterLauncher-linux-x64"
           fi
-          ls -la dist-launcher
+          echo "=== dist-launcher ==="
+          ls -laR dist-launcher
+          # Fail the job if nothing portable was staged (was silently empty before)
+          if [[ -z "$(find dist-launcher -type f | head -n1)" ]]; then
+            echo "ERROR: no desktop launcher artifacts found under target/ or src-tauri/target/"
+            for root in "${SEARCH_ROOTS[@]}"; do
+              echo "--- find $root/release (depth 3) ---"
+              find "$root/release" -maxdepth 3 -type f 2>/dev/null | head -n 80 || true
+            done
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: launcher-${{ matrix.platform }}
-          path: dist-launcher/*
+          path: dist-launcher/**
+          if-no-files-found: error
 
   build-android:
     name: launcher (android-arm64)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Init Amethyst nested submodules
+        run: |
+          git -C third_party/amethyst-android submodule update --init --recursive
+          # Fallback shallow clones if gitlink checkout fails on CI
+          if [[ ! -f third_party/amethyst-android/app_pojavlauncher/src/main/jni/SDL/CMakeLists.txt ]]; then
+            git clone --depth 1 https://github.com/libsdl-org/SDL.git third_party/amethyst-android/app_pojavlauncher/src/main/jni/SDL
+          fi
+          if [[ ! -d third_party/amethyst-android/app_pojavlauncher/src/main/jni/sdl2-compat ]]; then
+            git clone --depth 1 https://github.com/libsdl-org/sdl2-compat.git third_party/amethyst-android/app_pojavlauncher/src/main/jni/sdl2-compat
+          fi
+          if [[ ! -d third_party/amethyst-android/MobileGlues ]]; then
+            git clone --depth 1 https://github.com/MobileGL-Dev/MobileGlues.git third_party/amethyst-android/MobileGlues
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -122,9 +168,9 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install NDK / platform tools
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          sdkmanager --install "ndk;27.3.13750724" "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
@@ -183,8 +229,19 @@ jobs:
         run: |
           mkdir -p upload
           find artifacts -type f -exec cp {} upload/ \; || true
-          ls -la upload
+          # Preserve macOS .app bundles (directories)
+          find artifacts -type d -name '*.app' -exec cp -a {} upload/ \; || true
+          echo "=== upload staging ==="
+          ls -laR upload
           test "$(ls -A upload)" || (echo "No artifacts to publish" && exit 1)
+          # Desktop clients must be present when launcher job succeeded
+          if [[ "${{ needs.build-launcher.result }}" == "success" ]]; then
+            if ! find upload -type f \( -iname '*FreshwaterLauncher*' -o -iname '*.msi' -o -iname '*.AppImage' -o -iname '*.dmg' -o -iname '*.deb' -o -iname '*.exe' \) ! -iname 'fwl-sync-server*' | grep -q .; then
+              echo "ERROR: build-launcher succeeded but no desktop client files staged"
+              find artifacts -maxdepth 4 -print | head -n 200
+              exit 1
+            fi
+          fi
       - name: Create / update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
