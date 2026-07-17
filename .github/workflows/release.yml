@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build/publish (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-sync-server:
+    name: fwl-sync-server (${{ matrix.artifact }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: fwl-sync-server-windows-x64.exe
+            bin: fwl-sync-server.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: fwl-sync-server-linux-x64
+            bin: fwl-sync-server
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: fwl-sync-server-macos-arm64
+            bin: fwl-sync-server
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build -p fwl-sync-server --release --target ${{ matrix.target }}
+      - name: Stage
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.artifact }}"
+          if [[ "${{ runner.os }}" != "Windows" ]]; then chmod +x "dist/${{ matrix.artifact }}"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  build-launcher:
+    name: launcher (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+          - platform: linux-x64
+            os: ubuntu-22.04
+          - platform: macos-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Linux WebKit deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build Tauri
+        run: npm run tauri build
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p dist-launcher
+          # Windows
+          cp src-tauri/target/release/bundle/nsis/*.exe dist-launcher/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/msi/*.msi dist-launcher/ 2>/dev/null || true
+          # Linux
+          cp src-tauri/target/release/bundle/appimage/*.AppImage dist-launcher/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/deb/*.deb dist-launcher/ 2>/dev/null || true
+          # macOS
+          cp src-tauri/target/release/bundle/dmg/*.dmg dist-launcher/ 2>/dev/null || true
+          # fallback binary
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp src-tauri/target/release/freshwater-launcher.exe dist-launcher/FreshwaterLauncher-windows-x64.exe 2>/dev/null || true
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp -R src-tauri/target/release/bundle/macos/*.app dist-launcher/ 2>/dev/null || true
+          else
+            cp src-tauri/target/release/freshwater-launcher dist-launcher/FreshwaterLauncher-linux-x64 2>/dev/null || true
+          fi
+          ls -la dist-launcher
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ matrix.platform }}
+          path: dist-launcher/*
+
+  publish:
+    name: GitHub Release
+    needs: [build-sync-server, build-launcher]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          mkdir -p upload
+          find artifacts -type f -exec cp {} upload/ \;
+          ls -la upload
+      - name: Create / update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          NOTES="## FreshwaterLauncher ${TAG}
+
+          Cross-platform Minecraft Java launcher (FWL) + self-hosted **fwl-sync-server**.
+
+          ### Downloads
+          - **Launcher**: installers / binaries (Windows NSIS/MSI, Linux AppImage/deb, macOS dmg)
+          - **Sync backend**: \`fwl-sync-server-windows-x64.exe\`, \`fwl-sync-server-linux-x64\`, \`fwl-sync-server-macos-arm64\`
+
+          ### Docs
+          - Microsoft auth: \`docs/microsoft-auth.md\`
+          - Sync protocol: \`docs/fwl-sync-protocol.md\`
+          "
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" upload/* --clobber
+          else
+            gh release create "$TAG" upload/* \
+              --title "FreshwaterLauncher $TAG" \
+              --notes "$NOTES"
+          fi
