@@ -51,6 +51,15 @@ def convert(build_gradle: Path) -> None:
             1,
         )
 
+    # Library modules do not auto-emit BuildConfig.VERSION_NAME (app-only).
+    if 'buildConfigField "String", "VERSION_NAME"' not in text:
+        text = text.replace(
+            "multiDexEnabled true //important",
+            'multiDexEnabled true //important\n'
+            '        buildConfigField "String", "VERSION_NAME", "\\"${getVersionName()}\\""',
+            1,
+        )
+
     # Library asset merge task wiring
     text = text.replace(
         "tasks.mergeDebugAssets.dependsOn(",

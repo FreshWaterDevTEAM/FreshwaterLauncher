@@ -1,34 +1,40 @@
 # Android（ARM）说明
 
-## 当前状态
+## 架构
 
-- Tauri 2 Android：`src-tauri/tauri.android.conf.json`，包名 `com.freshwater.fwl`
-- **内嵌出游内核**：[Amethyst-Android](https://github.com/AngelAuraMC/Amethyst-Android)（Pojav 谱系，LGPL-3.0）submodule 于 `third_party/amethyst-android`
-- CI：`tauri android init` → `scripts/patch-android-project.sh`（库化 Amethyst + 注入依赖）→ release APK
-- **许可**：桌面/共享代码 MIT；Android 出游栈见 [NOTICE.android](../NOTICE.android) 与根 [LICENSE](../LICENSE) 例外说明
-- UI：账号 / 下载 / 实例 / 商店 / Sync 仍走 `fwl-core`；点启动后进入 Amethyst `MainActivity`
+FWL Android APK **内嵌** Amethyst/Pojav 出游内核（LGPL-3.0，见 `NOTICE.android`）：
+
+1. Tauri UI + Rust 准备 `fwl-android-launch.json`
+2. JNI → `FwlGameActivity` 映射目录 / 账号 / Runtime
+3. 拉起同 APK 内的 `net.kdt.pojavlaunch.MainActivity` 出游
+
+**不做**外置 Pojav/FCL Intent 桥接。
+
+## 构建要点
+
+`scripts/patch-android-project.sh` 会：
+
+- 将 Amethyst 暂存为 library 模块 `:app_pojavlauncher`
+- 写入与上游一致的 AGP 开关（否则 Java 编不过）：
+  - `android.nonFinalResIds=false`（`switch(R.id.*)`）
+  - `android.nonTransitiveRClass=false`（portrait-sdp / gamepad / AppCompat 资源）
+- 为 library 补 `BuildConfig.VERSION_NAME`
+- JitPack + `libbytehook.so` pickFirst
 
 ## 本地构建
 
 ```bash
 git submodule update --init --recursive
-# Amethyst 内层 submodule（SDL 等）
 git -C third_party/amethyst-android submodule update --init --recursive
-
 npm install
-# Android SDK / NDK / JDK 17
 npx tauri android init
 chmod +x scripts/patch-android-project.sh
 ./scripts/patch-android-project.sh
 npx tauri android build --apk --target aarch64
 ```
 
-## 使用流程（手机）
+## 手机使用
 
-1. 安装 APK，登录账号，下载版本并创建实例
-2. 「更多」→ **下载 Android Runtime**（MultiRT / JRE17）
-3. 首页启动 → `FwlGameActivity` 映射目录并拉起内嵌 `MainActivity`
-
-## 目录映射
-
-FWL 数据目录中的 `libraries` / `assets` / `versions` 会链接或复制到 Pojav 的 `.minecraft`；实例 `game_dir` 写入 `launcher_profiles.json`，模组与存档仍跟实例走。
+1. 安装 FWL APK（内含内核）
+2. 下载版本 / 创建实例 /（可选）在「更多」下载 Android Runtime
+3. 首页启动 → 同进程内核出游

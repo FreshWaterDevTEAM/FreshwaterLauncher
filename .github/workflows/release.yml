@@ -145,7 +145,7 @@ jobs:
   build-android:
     name: launcher (android-arm64)
     runs-on: ubuntu-22.04
-    # Desktop release must not be blocked by Amethyst/NDK WIP failures
+    # Desktop release must not be blocked while Amethyst/NDK is still being hardened
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -184,7 +184,7 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - run: npm ci
-      - name: Init Android project
+      - name: Init Android project (embed Amethyst)
         run: |
           npx tauri android init
           chmod +x scripts/patch-android-project.sh
@@ -198,7 +198,6 @@ jobs:
           mkdir -p dist-android
           find src-tauri/gen/android -name "*.apk" -type f -print
           find src-tauri/gen/android -name "*.apk" -type f -exec cp {} dist-android/ \;
-          # rename primary arm64 apk if present
           shopt -s nullglob
           for f in dist-android/*.apk; do
             base=$(basename "$f")
@@ -211,6 +210,7 @@ jobs:
         with:
           name: launcher-android-arm64
           path: dist-android/*
+          if-no-files-found: warn
 
   publish:
     name: GitHub Release

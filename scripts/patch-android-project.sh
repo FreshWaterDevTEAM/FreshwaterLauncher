@@ -55,6 +55,39 @@ fi
 
 python3 "$PATCH_PY" "$STAGED/app_pojavlauncher/build.gradle"
 
+# Critical: Tauri-generated project defaults to AGP 8 non-final / non-transitive R,
+# which breaks Amethyst Java (switch(R.id.*), portrait-sdp R.dimen._*sdp, AppCompat attrs).
+# Match Amethyst's own gradle.properties.
+GP="${GEN}/gradle.properties"
+touch "$GP"
+python3 - <<'PY' "$GP"
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+text = p.read_text(encoding="utf-8") if p.exists() else ""
+lines = []
+for key, val in (
+    ("android.nonFinalResIds", "false"),
+    ("android.nonTransitiveRClass", "false"),
+    ("android.useAndroidX", "true"),
+):
+    prefix = key + "="
+    if any(l.startswith(prefix) for l in text.splitlines()):
+        text = "\n".join(
+            (prefix + val if l.startswith(prefix) else l) for l in text.splitlines()
+        )
+        if not text.endswith("\n"):
+            text += "\n"
+    else:
+        lines.append(prefix + val)
+if lines:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "\n".join(lines) + "\n"
+p.write_text(text, encoding="utf-8")
+print(f"Patched gradle.properties: {p}")
+PY
+
 POJAV_DIR="$STAGED/app_pojavlauncher"
 LWJGL_DIR="$STAGED/jre_lwjgl3glfw"
 FORGE_DIR="$STAGED/forge_installer"
