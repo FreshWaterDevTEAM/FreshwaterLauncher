@@ -70,6 +70,32 @@ def convert(build_gradle: Path) -> None:
         "tasks.findByName('mergeReleaseAssets')?.dependsOn(",
     )
 
+    # Component jars write into src/main/assets/components; lint model + resource tasks
+    # read that dir without an explicit dep → Gradle validation failure. Disable lint
+    # (unneeded for embedded kernel) and order any asset-reading task after the jars.
+    if "FWL_LINT_DISABLE" not in text:
+        component_jars = (
+            "':forge_installer:jar', ':arc_dns_injector:jar', "
+            "':methods_injector_agent:jar', ':jre_lwjgl3glfw:lwjgl-3.3.3:jar', "
+            "':jre_lwjgl3glfw:lwjgl-3.4.1:jar'"
+        )
+        text += (
+            "\n// FWL_LINT_DISABLE\n"
+            "android {\n"
+            "    lint {\n"
+            "        checkReleaseBuilds false\n"
+            "        abortOnError false\n"
+            "    }\n"
+            "}\n"
+            "tasks.configureEach {\n"
+            "    if (name.contains('LintModel') || name.startsWith('lintAnalyze')"
+            " || name.startsWith('lintReport') || name.startsWith('lintVital')"
+            " || name.contains('LintReport') || name.contains('LintVital')) {\n"
+            f"        dependsOn({component_jars})\n"
+            "    }\n"
+            "}\n"
+        )
+
     marker = "// FWL_LIBRARY_PATCH"
     if marker not in text:
         text = marker + "\n" + text

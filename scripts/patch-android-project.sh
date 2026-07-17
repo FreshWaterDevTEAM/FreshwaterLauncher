@@ -227,9 +227,53 @@ android {
             t += "\n" + pack
     changed = True
 
+# Amethyst transitive deps drag in kotlin-stdlib 2.1.x; Tauri app compiles with an
+# older Kotlin. Skip the metadata version check so app Kotlin (FwlGameActivity) builds.
+if "skip-metadata-version-check" not in t:
+    if p.suffix == ".kts":
+        t += '''
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
+    compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
+}
+'''
+    else:
+        t += '''
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
+}
+'''
+    changed = True
+
+# Component jars write into app_pojavlauncher assets; release lint model tripping on
+# implicit deps. We don't need lint for the embedded kernel — disable release lint.
+if "checkReleaseBuilds" not in t:
+    if p.suffix == ".kts":
+        t += '''
+
+android {
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+}
+'''
+    else:
+        t += '''
+
+android {
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+'''
+    changed = True
+
 if changed:
     p.write_text(t, encoding="utf-8")
-    print("app build patched (deps + jni pickFirst):", p)
+    print("app build patched (deps + jni pickFirst + kotlin/lint):", p)
 else:
     print("app build already patched:", p)
 PY
