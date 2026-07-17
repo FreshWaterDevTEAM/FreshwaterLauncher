@@ -10,9 +10,16 @@ from pathlib import Path
 def convert(build_gradle: Path) -> None:
     text = build_gradle.read_text(encoding="utf-8")
 
+    # Must NOT pin AGP version here — Tauri already puts AGP on the classpath.
     text = text.replace(
         "id 'com.android.application' version '8.7.2'",
-        "id 'com.android.library' version '8.7.2'",
+        "id 'com.android.library'",
+    )
+    text = re.sub(
+        r"id\s+['\"]com\.android\.(application|library)['\"]\s+version\s+['\"][^'\"]+['\"]",
+        "id 'com.android.library'",
+        text,
+        count=1,
     )
 
     text = re.sub(r"\s*applicationId\s+[\"'][^\"']+[\"']\s*\n", "\n", text)
