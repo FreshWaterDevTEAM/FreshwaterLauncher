@@ -1,5 +1,5 @@
 use crate::config::FwlConfig;
-use crate::error::{FwlError, Result};
+use crate::error::Result;
 use crate::paths::{ensure_dir, java_dir};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

@@ -10,7 +10,7 @@ from pathlib import Path
 def convert(build_gradle: Path) -> None:
     text = build_gradle.read_text(encoding="utf-8")
 
-    # Must NOT pin AGP version here — Tauri already puts AGP on the classpath.
+    # Must NOT pin AGP version — Tauri already puts AGP on the classpath.
     text = text.replace(
         "id 'com.android.application' version '8.7.2'",
         "id 'com.android.library'",
@@ -22,7 +22,13 @@ def convert(build_gradle: Path) -> None:
         count=1,
     )
 
+    # Library modules cannot declare applicationId / applicationIdSuffix
     text = re.sub(r"\s*applicationId\s+[\"'][^\"']+[\"']\s*\n", "\n", text)
+    text = re.sub(r"\s*applicationIdSuffix\s+[\"'][^\"']+[\"']\s*\n", "\n", text)
+
+    # Resource shrinker is app-only
+    text = re.sub(r"\s*shrinkResources\s+true\s*\n", "\n", text)
+    text = re.sub(r"\s*shrinkResources\s+false\s*\n", "\n", text)
 
     # Neutralize signing that needs vendor keystores
     text = re.sub(
@@ -46,7 +52,7 @@ def convert(build_gradle: Path) -> None:
         text = marker + "\n" + text
 
     build_gradle.write_text(text, encoding="utf-8")
-    print(f"Patched {build_gradle} → com.android.library")
+    print(f"Patched {build_gradle} → com.android.library (no shrinkResources)")
 
 
 def main() -> int:

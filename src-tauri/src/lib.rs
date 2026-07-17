@@ -14,9 +14,9 @@ use fwl_core::instances::{
     InstanceStore,
 };
 use fwl_core::java::detect_java;
-use fwl_core::launch::{
-    build_launch_plan, launch_game, read_latest_log, recent_crash_summary,
-};
+use fwl_core::launch::{build_launch_plan, read_latest_log, recent_crash_summary};
+#[cfg(not(target_os = "android"))]
+use fwl_core::launch::launch_game;
 use fwl_core::loaders::{
     install_fabric, install_forge_profile, install_quilt, list_forge_versions,
     list_neoforge_versions, optifine_download_page, LoaderKind,
@@ -48,7 +48,7 @@ fn get_config() -> Result<FwlConfig, String> {
 }
 
 #[tauri::command]
-fn save_config(mut config: FwlConfig) -> Result<(), String> {
+fn save_config(config: FwlConfig) -> Result<(), String> {
     config.save().map_err(|e| e.to_string())
 }
 
