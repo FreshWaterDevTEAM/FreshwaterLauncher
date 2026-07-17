@@ -114,7 +114,14 @@ jobs:
             copy_globs "release/freshwater-launcher.exe" "FreshwaterLauncher-windows-x64.exe"
             copy_globs "release/FreshwaterLauncher.exe" "FreshwaterLauncher-windows-x64.exe"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            copy_globs "release/bundle/macos/*.app"
+            # Zip .app bundles — GitHub Release cannot upload directories
+            for root in "${SEARCH_ROOTS[@]}"; do
+              for app in "${root}/release/bundle/macos/"*.app; do
+                [[ -d "$app" ]] || continue
+                base="$(basename "$app" .app)"
+                ditto -c -k --sequesterRsrc --keepParent "$app" "dist-launcher/${base}-macos-arm64.app.zip"
+              done
+            done
           else
             copy_globs "release/freshwater-launcher" "FreshwaterLauncher-linux-x64"
           fi
@@ -138,6 +145,8 @@ jobs:
   build-android:
     name: launcher (android-arm64)
     runs-on: ubuntu-22.04
+    # Desktop release must not be blocked by Amethyst/NDK WIP failures
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -227,16 +236,22 @@ jobs:
       - name: Flatten artifacts
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p upload
+          # Only files — never upload .app directories (GitHub asset API rejects them)
           find artifacts -type f -exec cp {} upload/ \; || true
-          # Preserve macOS .app bundles (directories)
-          find artifacts -type d -name '*.app' -exec cp -a {} upload/ \; || true
+          # If any .app slipped through as a directory, zip it
+          while IFS= read -r -d '' app; do
+            base="$(basename "$app")"
+            (cd "$(dirname "$app")" && zip -qr "$GITHUB_WORKSPACE/upload/${base}.zip" "$base")
+          done < <(find artifacts -type d -name '*.app' -print0 || true)
           echo "=== upload staging ==="
-          ls -laR upload
+          ls -la upload
+          # Drop any accidental directories from upload/
+          find upload -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
           test "$(ls -A upload)" || (echo "No artifacts to publish" && exit 1)
-          # Desktop clients must be present when launcher job succeeded
           if [[ "${{ needs.build-launcher.result }}" == "success" ]]; then
-            if ! find upload -type f \( -iname '*FreshwaterLauncher*' -o -iname '*.msi' -o -iname '*.AppImage' -o -iname '*.dmg' -o -iname '*.deb' -o -iname '*.exe' \) ! -iname 'fwl-sync-server*' | grep -q .; then
+            if ! find upload -type f \( -iname '*FreshwaterLauncher*' -o -iname '*.msi' -o -iname '*.AppImage' -o -iname '*.dmg' -o -iname '*.deb' -o -iname '*.exe' -o -iname '*.zip' \) ! -iname 'fwl-sync-server*' | grep -q .; then
               echo "ERROR: build-launcher succeeded but no desktop client files staged"
               find artifacts -maxdepth 4 -print | head -n 200
               exit 1

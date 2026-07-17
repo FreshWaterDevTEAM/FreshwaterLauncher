@@ -126,20 +126,91 @@ print("app dependencies patched:", p)
 PY
 fi
 
-ROOT_BUILD="$(find "$GEN" -maxdepth 2 -type f \( -name 'build.gradle.kts' -o -name 'build.gradle' \) ! -path '*/app/*' | head -n1 || true)"
-if [[ -n "$ROOT_BUILD" ]] && ! grep -q 'jitpack.io' "$ROOT_BUILD"; then
-  cat >>"$ROOT_BUILD" <<'EOF'
+# Ensure JitPack is available (Kotlin DSL vs Groovy)
+python3 - <<'PY' "$SETTINGS" "$GEN"
+import sys
+from pathlib import Path
+
+settings = Path(sys.argv[1])
+gen = Path(sys.argv[2])
+text = settings.read_text(encoding="utf-8")
+if "jitpack.io" in text:
+    print("jitpack already in settings")
+    raise SystemExit(0)
+
+if settings.name.endswith(".kts"):
+    needle = "mavenCentral()"
+    if needle in text:
+        text = text.replace(
+            needle,
+            needle + '\n        maven { url = uri("https://jitpack.io") }',
+            1,
+        )
+        settings.write_text(text, encoding="utf-8")
+        print(f"Added jitpack to {settings}")
+        raise SystemExit(0)
+    # fallback append
+    settings.write_text(
+        text
+        + """
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    print(f"Appended dependencyResolutionManagement jitpack to {settings}")
+else:
+    settings.write_text(
+        text
+        + """
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    print(f"Appended groovy jitpack to {settings}")
+
+# Do NOT append Groovy allprojects{} into build.gradle.kts (breaks Kotlin DSL)
+for root_build in list(gen.glob("build.gradle.kts")) + list(gen.glob("build.gradle")):
+    if "app" in root_build.parts:
+        continue
+    bt = root_build.read_text(encoding="utf-8")
+    if "jitpack.io" in bt:
+        continue
+    if root_build.suffix == ".kts":
+        # Prefer settings injection only for kts roots
+        print(f"Skipping groovy-style repo inject for {root_build}")
+        continue
+    root_build.write_text(
+        bt
+        + """
 
 allprojects {
     repositories {
         google()
         mavenCentral()
-        maven { url "https://jitpack.io" }
+        maven { url 'https://jitpack.io' }
     }
 }
-EOF
-  echo "Added jitpack to $ROOT_BUILD"
-fi
+""",
+        encoding="utf-8",
+    )
+    print(f"Added groovy jitpack to {root_build}")
+PY
 
 python3 - <<'PY' "$MANIFEST"
 import re
