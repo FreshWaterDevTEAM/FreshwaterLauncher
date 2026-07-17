@@ -25,7 +25,7 @@ FWL_MS_CLIENT_ID=your-client-id
 
 ```
 FreshwaterLauncher (FWL) is an open-source, third-party Minecraft: Java Edition launcher for Windows, macOS, Linux, and Android. We need Minecraft Services API access so players can sign in with their personal Microsoft accounts (OAuth 2.0 device code / Xbox Live → Minecraft Services), verify game ownership, obtain profiles, and launch the game legally.
-We do not collect or sell account credentials. Tokens are stored only on the user’s device for session refresh. The project is open source at: https://github.com/FreshwaterDevTeam/FreshwaterLauncher
+We do not collect or sell account credentials. Tokens are stored only on the user’s device for session refresh. The project is open source at: https://github.com/FreshWaterDevTEAM/FreshwaterLauncher
 Azure Application (client) ID: 9e27bb17-91c2-49ce-b7b4-d667665e82da
 ```
 

@@ -169,7 +169,7 @@ export default function MorePage({ config, instance, onRefresh, setToast }: Prop
             与实现均独立，不基于 PCL 源码。
           </p>
           <p className="muted">
-            仓库：https://github.com/FreshwaterDevTeam/FreshwaterLauncher
+            仓库：https://github.com/FreshWaterDevTEAM/FreshwaterLauncher
           </p>
           {skin && (
             <p className="muted">皮肤预览服务已接入（mc-heads）。</p>

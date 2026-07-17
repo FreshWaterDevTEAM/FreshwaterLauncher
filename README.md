@@ -9,7 +9,7 @@
 - **FWL Sync**：服主自建更新源，玩家一键同步客户端 Mod
 - 兼容标准 `.minecraft` 与 Modrinth `.mrpack`
 
-仓库：<https://github.com/FreshwaterDevTeam/FreshwaterLauncher>
+仓库：<https://github.com/FreshWaterDevTEAM/FreshwaterLauncher>
 
 ## 开发
 
