@@ -26,11 +26,8 @@ def convert(build_gradle: Path) -> None:
     text = re.sub(r"\s*applicationId\s+[\"'][^\"']+[\"']\s*\n", "\n", text)
     text = re.sub(r"\s*applicationIdSuffix\s+[\"'][^\"']+[\"']\s*\n", "\n", text)
 
-    # Resource shrinker is app-only
-    text = re.sub(r"\s*shrinkResources\s+true\s*\n", "\n", text)
-    text = re.sub(r"\s*shrinkResources\s+false\s*\n", "\n", text)
-
-    # android.bundle {} exists only on ApplicationExtension, not LibraryExtension
+    # App-only DSL
+    text = re.sub(r"\s*shrinkResources\s+(true|false)\s*\n", "\n", text)
     text = re.sub(
         r"\n\s*bundle\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*\n",
         "\n",
@@ -45,6 +42,14 @@ def convert(build_gradle: Path) -> None:
         "signingConfig null",
         text,
     )
+
+    # Keep packaging pickFirst for bytehook (also needed at app merge — see patch script)
+    if "pickFirst '**/libbytehook.so'" not in text and 'pickFirst("**/libbytehook.so")' not in text:
+        text = text.replace(
+            "packagingOptions {",
+            "packagingOptions {\n        pickFirst '**/libbytehook.so'\n",
+            1,
+        )
 
     # Library asset merge task wiring
     text = text.replace(
@@ -61,7 +66,7 @@ def convert(build_gradle: Path) -> None:
         text = marker + "\n" + text
 
     build_gradle.write_text(text, encoding="utf-8")
-    print(f"Patched {build_gradle} → com.android.library (no shrinkResources)")
+    print(f"Patched {build_gradle} → com.android.library")
 
 
 def main() -> int:

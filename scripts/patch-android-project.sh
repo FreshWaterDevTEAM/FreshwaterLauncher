@@ -109,25 +109,87 @@ else
   echo "settings already includes app_pojavlauncher"
 fi
 
-if ! grep -q 'app_pojavlauncher' "$APP_BUILD"; then
-  python3 - <<PY
+python3 - <<PY
 from pathlib import Path
 p = Path(r'''$APP_BUILD''')
 t = p.read_text(encoding="utf-8")
-if "app_pojavlauncher" in t:
-    raise SystemExit(0)
-if p.suffix == ".kts":
-    dep = 'implementation(project(":app_pojavlauncher"))'
+changed = False
+
+# Depend on Amethyst library
+if "app_pojavlauncher" not in t:
+    if p.suffix == ".kts":
+        dep = 'implementation(project(":app_pojavlauncher"))'
+    else:
+        dep = "implementation project(':app_pojavlauncher')"
+    if "dependencies {" in t:
+        t = t.replace("dependencies {", "dependencies {\n    " + dep, 1)
+    else:
+        t += "\n\ndependencies {\n    " + dep + "\n}\n"
+    changed = True
+
+# Resolve duplicate JNI from Amethyst + bytehook AAR at the *app* merge step
+if "libbytehook.so" not in t:
+    if p.suffix == ".kts":
+        pack = '''
+android {
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "**/libbytehook.so",
+                "**/libc++_shared.so",
+            )
+        }
+    }
+}
+'''
+        # Prefer nesting into existing android { } if present
+        if "android {" in t and "packaging {" not in t:
+            t = t.replace(
+                "android {",
+                """android {
+    packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "**/libbytehook.so",
+                "**/libc++_shared.so",
+            )
+        }
+    }
+""",
+                1,
+            )
+        else:
+            t += "\n" + pack
+    else:
+        pack = """
+android {
+    packagingOptions {
+        pickFirst '**/libbytehook.so'
+        pickFirst '**/libc++_shared.so'
+    }
+}
+"""
+        if "android {" in t and "packagingOptions" not in t and "packaging {" not in t:
+            t = t.replace(
+                "android {",
+                """android {
+    packagingOptions {
+        pickFirst '**/libbytehook.so'
+        pickFirst '**/libc++_shared.so'
+    }
+""",
+                1,
+            )
+        else:
+            t += "\n" + pack
+    changed = True
+
+if changed:
+    p.write_text(t, encoding="utf-8")
+    print("app build patched (deps + jni pickFirst):", p)
 else:
-    dep = "implementation project(':app_pojavlauncher')"
-if "dependencies {" in t:
-    t = t.replace("dependencies {", "dependencies {\n    " + dep, 1)
-else:
-    t += "\n\ndependencies {\n    " + dep + "\n}\n"
-p.write_text(t, encoding="utf-8")
-print("app dependencies patched:", p)
+    print("app build already patched:", p)
 PY
-fi
 
 # Ensure JitPack is available (Kotlin DSL vs Groovy)
 python3 - <<'PY' "$SETTINGS" "$GEN"
