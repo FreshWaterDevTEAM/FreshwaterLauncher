@@ -96,6 +96,17 @@ def convert(build_gradle: Path) -> None:
             "}\n"
         )
 
+    # App module's Kotlin compile analyzes library classes and must resolve the
+    # supertypes they reference (e.g. TouchControllerInputView -> LauncherProxyClient).
+    # implementation deps are not exposed to consumers, so promote them to api.
+    if "// FWL_API_DEPS" not in text:
+        text = re.sub(
+            r"(\n[ \t]*)implementation(\s)",
+            r"\1api\2",
+            text,
+        )
+        text = text.replace("dependencies {", "dependencies {\n    // FWL_API_DEPS", 1)
+
     marker = "// FWL_LIBRARY_PATCH"
     if marker not in text:
         text = marker + "\n" + text
