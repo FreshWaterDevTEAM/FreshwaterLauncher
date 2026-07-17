@@ -19,7 +19,7 @@
 - Rust stable
 - **Windows**：需安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（勾选「使用 C++ 的桌面开发」），提供 `link.exe`
 - 桌面：各平台 Tauri 系统依赖  
-- Android：Android SDK / NDK（`npm run tauri android init` 后开发）
+- Android：Android SDK / NDK / JDK 17（`npx tauri android init`；Release 会产出 ARM64 APK）
 
 ### 命令
 
